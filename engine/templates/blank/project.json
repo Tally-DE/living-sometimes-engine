@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "engineVersion": "1.0.0",
+  "id": "blank",
+  "title": "Untitled story",
+  "duration": 30,
+  "description": "An empty scene ready for your story.",
+  "seed": 1,
+  "profile": "classic",
+  "entry": "scene.ts",
+  "status": "draft",
+  "cues": [{ "id": "scene", "name": "Scene", "start": 0, "end": 30 }],
+  "settings": { "exposure": 1, "density": 1, "camera": "authored" }
+}

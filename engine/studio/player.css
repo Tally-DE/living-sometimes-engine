@@ -1,0 +1,110 @@
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #020202;
+  color: #bec7c0;
+  font: 12px monospace;
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+#player,
+#stage {
+  position: absolute;
+  inset: 0;
+}
+.scene-canvas,
+.glyph-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.glyph-layer {
+  pointer-events: none;
+}
+button {
+  font: inherit;
+  background: #0a0d0bee;
+  color: inherit;
+  border: 1px solid #46514a;
+  border-radius: 3px;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+button:hover {
+  background: #26312a;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid #c7dfce;
+  outline-offset: 3px;
+}
+#begin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 14px 25px;
+  letter-spacing: 1px;
+}
+#controls {
+  position: absolute;
+  bottom: 18px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  opacity: 0.25;
+  transition: opacity 0.2s;
+}
+#controls:hover,
+#controls:focus-within {
+  opacity: 1;
+}
+#seek {
+  flex: 1;
+  min-width: 20px;
+  accent-color: #bad0c1;
+}
+#status {
+  position: absolute;
+  bottom: 66px;
+  left: 24px;
+  right: 24px;
+  color: #e8bbaa;
+}
+#time {
+  min-width: 90px;
+}
+@media (max-width: 600px) {
+  #controls {
+    left: 10px;
+    right: 10px;
+    bottom: 12px;
+    flex-wrap: wrap;
+    opacity: 1;
+  }
+  button {
+    padding: 8px;
+    font-size: 10px;
+  }
+  #seek {
+    order: 5;
+    flex-basis: 100%;
+  }
+  #time {
+    margin-left: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

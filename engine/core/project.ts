@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = '1.0.0';
+export const ENGINE_VERSION = '1.1.0';
 export interface Cue {
   id: string;
   name: string;
@@ -24,11 +24,18 @@ export interface Project {
     string,
     { value: number; min: number; max: number; step: number; label: string }
   >;
+  visual?: { cellWidth?: number; minColumns?: number; maxColumns?: number; cellAspect?: number };
+  verification?: {
+    times?: number[];
+    ending?: 'black' | 'hold';
+    compareCpu?: boolean;
+    input?: { name: string; value: number };
+  };
 }
 export function validateProject(value: unknown): Project {
   if (!value || typeof value !== 'object') throw Error('Project must be an object.');
   const p = value as Project;
-  if (p.schemaVersion !== 1 || p.engineVersion !== ENGINE_VERSION)
+  if (p.schemaVersion !== 1 || !['1.0.0', ENGINE_VERSION].includes(p.engineVersion))
     throw Error('Project/engine version mismatch. Run an explicit shared upgrade.');
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(p.id)) throw Error('Invalid project id.');
   if (typeof p.title !== 'string' || !p.title.trim() || typeof p.description !== 'string')
@@ -91,5 +98,39 @@ export function validateProject(value: unknown): Project {
       typeof q.label !== 'string'
     )
       throw Error('Invalid parameter.');
+  if (p.visual) {
+    for (const [key, value] of Object.entries(p.visual))
+      if (
+        !['cellWidth', 'minColumns', 'maxColumns', 'cellAspect'].includes(key) ||
+        !Number.isFinite(value) ||
+        value <= 0
+      )
+        throw Error('Invalid visual settings.');
+    if (
+      (p.visual.maxColumns ?? 520) > 2048 ||
+      (p.visual.minColumns ?? 1) > (p.visual.maxColumns ?? 520)
+    )
+      throw Error('Invalid glyph density bounds.');
+  }
+  if (p.verification) {
+    const v = p.verification;
+    if (
+      v.times &&
+      (!Array.isArray(v.times) ||
+        v.times.length > 500 ||
+        v.times.some((t) => !Number.isFinite(t) || t < 0 || t > p.duration))
+    )
+      throw Error('Invalid verification times.');
+    if (v.ending && !['black', 'hold'].includes(v.ending))
+      throw Error('Invalid ending expectation.');
+    if (
+      v.input &&
+      (!p.parameters?.[v.input.name] ||
+        !Number.isFinite(v.input.value) ||
+        v.input.value < p.parameters[v.input.name].min ||
+        v.input.value > p.parameters[v.input.name].max)
+    )
+      throw Error('Invalid verification input.');
+  }
   return structuredClone(p);
 }

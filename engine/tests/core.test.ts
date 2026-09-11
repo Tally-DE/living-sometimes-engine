@@ -37,6 +37,24 @@ test('reference manifest validates; incompatible and forbidden project assets fa
   ])
     assert.throws(() => validateProject({ ...manifest, ...patch }));
 });
+
+test('additive 1.1 manifests validate, and diagnostics cannot request invalid times or settings', () => {
+  const upgraded = {
+    ...manifest,
+    engineVersion: '1.1.0',
+    visual: { cellWidth: 5, minColumns: 80, maxColumns: 300 },
+    verification: { times: [0, 24, 264], ending: 'black' },
+  };
+  assert.equal(validateProject(upgraded).engineVersion, '1.1.0');
+  for (const patch of [
+    { engineVersion: '2.0.0' },
+    { visual: { minColumns: 300, maxColumns: 100 } },
+    { visual: { cellWidth: NaN } },
+    { verification: { times: [265] } },
+    { verification: { input: { name: 'missing', value: 1 } } },
+  ])
+    assert.throws(() => validateProject({ ...upgraded, ...patch }));
+});
 test('track samples preserve holds and resolve boundaries independently of visit order', () => {
   const track = new Track([
     { time: 0, value: 0, easing: 'smooth' },

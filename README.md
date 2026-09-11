@@ -42,7 +42,8 @@ The build creates a self-contained live HTML in `engine/dist/standalone/` and a 
 - Shared GPU ASCII rendering and a colour CPU reference/fallback.
 - Deterministic seeking, named cues, audio timing, input replay and bounded simulation checkpoints.
 - Hierarchical objects, attachments, procedural geometry, direct glyph typography, reach/contact and deformation helpers.
-- Static image sampling onto live deformable surfaces.
+- Parametric surfaces, lit 3D text, solid/glyph transitions, tearing and glitch effects.
+- Live canvas composition, image deformation, glyph particles and area-filtered ASCII presentation.
 - Project generator, local studio, shared audience player, tests and CI.
 
 This repository contains only the engine, tooling, documentation, tests and a blank authoring template. It includes no art, stories, demonstration projects, scores or reference extracts. Bring your own stories and assets under suitable terms.
@@ -54,5 +55,7 @@ Please credit **Living Sometimes Engine** within your piece, using its name, a s
 ## License and contributions
 
 [MIT](LICENSE). The engine can be used, changed and redistributed, including commercially, subject to the license notice. Third-party code retains its [own notices](THIRD_PARTY_NOTICES.md). Your story and assets can have separate terms.
+
+See the [authoring API](engine/API.md) for examples, verification and troubleshooting, and [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the shared-upgrade workflow. Current limits, including orthographic CPU fallback and score timing, are documented in the engine guide.

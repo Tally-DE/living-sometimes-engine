@@ -14,6 +14,7 @@ export const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.webp': 'image/webp',
+  '.wasm': 'application/wasm',
   '.md': 'text/plain; charset=utf-8',
 };
 export async function projects() {
@@ -30,18 +31,16 @@ export async function projects() {
         if (e.code !== 'ENOENT') throw e;
       }
     }
-  return result.sort((a, b) =>
-    a.id === 'signal' ? -1 : b.id === 'signal' ? 1 : a.title.localeCompare(b.title),
-  );
+  return result.sort((a, b) => a.title.localeCompare(b.title));
 }
 export async function registry() {
   const all = await projects();
   await fs.mkdir(path.join(ROOT, '.cache'), { recursive: true });
-  await fs.writeFile(
-    path.join(ROOT, '.cache/registry.ts'),
-    `import type { PieceFactory } from '../core/runtime';\nimport type { Project } from '../core/project';\nexport const entries: Record<string, { load: () => Promise<{ default: PieceFactory }>; manifest: Project }> = {\n${all.map((p) => `${JSON.stringify(p.id)}: { load: () => import(${JSON.stringify('../projects/' + p.id + '/' + p.entry)}), manifest: ${JSON.stringify(p)} }`).join(',\n')}\n};\n`,
-  );
+  await fs.writeFile(path.join(ROOT, '.cache/registry.ts'), registrySource(all));
   return all;
+}
+export function registrySource(all) {
+  return `import type { PieceFactory } from '../core/runtime';\nimport type { Project } from '../core/project';\nexport const entries: Record<string, { load: () => Promise<{ default: PieceFactory }>; manifest: Project }> = {\n${all.map((p) => `${JSON.stringify(p.id)}: { load: () => import(${JSON.stringify('../projects/' + p.id + '/' + p.entry)}), manifest: ${JSON.stringify(p)} }`).join(',\n')}\n};\n`;
 }
 export function escapeHtml(s) {
   return String(s).replace(

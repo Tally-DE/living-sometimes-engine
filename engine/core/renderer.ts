@@ -1,6 +1,10 @@
 import { clamp, I, lookAt, mul, ortho, type Vec3 } from './math';
 import { glyphs, type VisualProfile } from './profiles';
 import type { Geometry } from '../modules/geometry';
+import type { Presentation } from './presentation';
+export interface DrawOptions {
+  gain?: number;
+}
 export interface MeshHandle {
   a: Float32Array;
   dispose: () => void;
@@ -36,8 +40,8 @@ export interface AsciiRenderer {
   mesh(g: Geometry): MeshHandle;
   update(m: MeshHandle, g: Geometry): void;
   begin(t: number): void;
-  draw(m: MeshHandle, transform?: ArrayLike<number>): void;
-  finish(fade?: number): void;
+  draw(m: MeshHandle, transform?: ArrayLike<number>, options?: DrawOptions): void;
+  finish(fade?: number, presentation?: Presentation): void;
   resize(): void;
   dispose(): void;
   stats(): RendererStats;

@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { build } from 'esbuild';
-import { ROOT, registry, MIME, escapeHtml, safeId } from './common.mjs';
+import { ROOT, projects, registrySource, MIME, escapeHtml, safeId } from './common.mjs';
 import { policy } from './policy.mjs';
+/** @param {{only?: string, out?: string}} options */
 export async function buildAll({ only, out = path.join(ROOT, 'dist') } = {}) {
   await policy();
-  const all = await registry(),
+  const all = await projects(),
     selected = only ? all.filter((p) => p.id === safeId(only)) : all;
   if (only && !selected.length) throw Error('Unknown project.');
   const target = path.resolve(out),
@@ -21,14 +22,32 @@ export async function buildAll({ only, out = path.join(ROOT, 'dist') } = {}) {
   const site = path.join(target, 'site'),
     standalone = path.join(target, 'standalone');
   for (const d of [site, standalone]) await fs.mkdir(d, { recursive: true });
-  const result = await build({
-    entryPoints: [path.join(ROOT, 'studio/player.ts')],
-    bundle: true,
-    format: 'iife',
-    write: false,
-    minify: true,
-    target: 'es2022',
-  });
+  const bundle = async (projects) =>
+    await build({
+      entryPoints: [path.join(ROOT, 'studio/player.ts')],
+      bundle: true,
+      format: 'iife',
+      write: false,
+      minify: true,
+      target: 'es2022',
+      metafile: true,
+      plugins: [
+        {
+          name: 'isolated-project-registry',
+          setup(b) {
+            b.onResolve({ filter: /\.cache\/registry$/ }, () => ({
+              path: 'project-registry',
+              namespace: 'isolated',
+            }));
+            b.onLoad({ filter: /.*/, namespace: 'isolated' }, () => ({
+              contents: registrySource(projects),
+              loader: 'ts',
+              resolveDir: path.join(ROOT, '.cache'),
+            }));
+          },
+        },
+      ],
+    });
   const threeLicense = await fs.readFile(path.join(ROOT, 'node_modules/three/LICENSE'), 'utf8');
   let engineLicense = '';
   try {
@@ -37,12 +56,29 @@ export async function buildAll({ only, out = path.join(ROOT, 'dist') } = {}) {
     if (error.code !== 'ENOENT') throw error;
   }
   const notices = `Bundled engine licenses. Project content may have separate terms.\n\n${engineLicense}\n\nthree.js\n${threeLicense}`;
-  const js = `/*\n${notices.replace(/\*\//g, '* /')}\n*/\n${result.outputFiles[0].text}`;
+  const wrap = (result) =>
+    `/*\n${notices.replace(/\*\//g, '* /')}\n*/\n${result.outputFiles[0].text}`;
   const css = await fs.readFile(path.join(ROOT, 'studio/player.css'), 'utf8');
-  await fs.writeFile(path.join(site, 'player.js'), js);
+  await fs.writeFile(path.join(site, 'player.js'), wrap(await bundle([])));
   await fs.writeFile(path.join(site, 'player.css'), css);
   await fs.writeFile(path.join(site, 'LICENSES.txt'), notices);
   for (const p of selected) {
+    const result = await bundle([p]),
+      js = wrap(result);
+    // Make accidental imports of another story fail before a release can expose it.
+    for (const file of Object.keys(result.metafile.inputs)) {
+      const relative = path.relative(path.join(ROOT, 'projects'), path.resolve(file));
+      if (
+        !relative.startsWith('..') &&
+        !path.isAbsolute(relative) &&
+        relative.split(path.sep).length > 1 &&
+        relative.split(path.sep)[0] !== p.id
+      )
+        throw Error(
+          `Project ${p.id} imports another project's source: ${relative}. Move reusable code to a shared module.`,
+        );
+    }
+    await fs.writeFile(path.join(site, p.id + '.js'), js);
     const assets = {};
     for (const rel of new Set([p.audio?.src, ...Object.values(p.assets ?? {})].filter(Boolean))) {
       const source = path.join(ROOT, 'projects', p.id, rel),
@@ -68,7 +104,7 @@ export async function buildAll({ only, out = path.join(ROOT, 'dist') } = {}) {
       head +
         '<link rel="stylesheet" href="player.css">' +
         body({ project: p, base: `projects/${p.id}/` }) +
-        '<script src="player.js"></script></html>',
+        `<script src="${p.id}.js"></script></html>`,
     );
   }
   await fs.writeFile(
@@ -85,7 +121,7 @@ export async function buildAll({ only, out = path.join(ROOT, 'dist') } = {}) {
         .join(''),
   );
   const manifest = {
-    engineVersion: '1.0.0',
+    engineVersion: '1.1.0',
     output: 'live-rendered-code',
     projects: selected.map((p) => ({
       id: p.id,

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { validateProject } from '../core/project';
 import { createProject } from '../tools/new-project.mjs';
+import { buildAll } from '../tools/build.mjs';
 import { policy, verifyArchive, walk } from '../tools/policy.mjs';
 import { ROOT, projects, MIME } from '../tools/common.mjs';
 test('all native projects validate and import shared modules without private engines', async () => {
@@ -30,6 +31,9 @@ test('project generator creates a valid buildable scene without touching engine 
   const base = path.join(ROOT, 'projects'),
     id = 'engine-generator-test';
   let created = false;
+  let neighbourCreated = false;
+  const neighbour = 'engine-isolation-test';
+  const registryBefore = await fs.readFile(path.join(ROOT, '.cache/registry.ts'), 'utf8');
   try {
     await createProject(id, 'Generator verification', base);
     created = true;
@@ -44,9 +48,33 @@ test('project generator creates a valid buildable scene without touching engine 
     });
     assert.ok(result.outputFiles[0].contents.length > 1000);
     assert.equal(p.status, 'draft');
+    await createProject(neighbour, 'Isolated fixture', base);
+    neighbourCreated = true;
+    await fs.appendFile(
+      path.join(base, neighbour, 'scene.ts'),
+      "\nthrow Error('UNRELATED_PRIVATE_FIXTURE_MUST_NOT_BE_BUNDLED');\n",
+    );
+    const output = path.join(ROOT, 'dist/generator-check');
+    await buildAll({ only: id, out: output });
+    const html = await fs.readFile(path.join(output, 'standalone', id + '.html'), 'utf8');
+    assert.doesNotMatch(
+      html,
+      /UNRELATED_PRIVATE_FIXTURE_MUST_NOT_BE_BUNDLED|engine-isolation-test/,
+    );
+    assert.match(html, /Generator verification/);
+    await fs.appendFile(
+      path.join(base, id, p.entry),
+      "\nimport '../engine-isolation-test/scene';\n",
+    );
+    await assert.rejects(buildAll({ only: id, out: output }), /imports another project's source/);
   } finally {
     if (created) {
       const target = path.resolve(base, id);
+      assert.equal(path.dirname(target), path.resolve(ROOT, 'projects'));
+      await fs.rm(target, { recursive: true });
+    }
+    if (neighbourCreated) {
+      const target = path.resolve(base, neighbour);
       assert.equal(path.dirname(target), path.resolve(ROOT, 'projects'));
       await fs.rm(target, { recursive: true });
     }
@@ -59,6 +87,7 @@ test('project generator creates a valid buildable scene without touching engine 
     ),
   );
   assert.deepEqual(after, before);
+  assert.equal(await fs.readFile(path.join(ROOT, '.cache/registry.ts'), 'utf8'), registryBefore);
 });
 test('release policy preserves all existing HTMLs and excludes video delivery', async () => {
   const result = await policy({ outputs: true });

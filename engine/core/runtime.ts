@@ -23,6 +23,7 @@ export interface Host {
   timeline: Timeline;
   project: Project;
   asset: (path: string) => string;
+  scope: ResourceScope;
 }
 export type PieceFactory = (host: Host) => Piece | Promise<Piece>;
 export class Runtime extends EventTarget {
@@ -60,20 +61,21 @@ export class Runtime extends EventTarget {
     this.project = validateProject(project);
     this.timeline = new Timeline(project.cues);
     const canvas = document.createElement('canvas');
+    const profile = { ...profiles[project.profile], ...project.visual };
     canvas.className = 'scene-canvas';
     canvas.setAttribute('aria-label', project.title);
     stage.replaceChildren(canvas);
     try {
       this.renderer =
         backend === 'cpu'
-          ? new CpuAsciiRenderer(canvas, profiles[project.profile])
-          : new GpuAsciiRenderer(canvas, profiles[project.profile]);
+          ? new CpuAsciiRenderer(canvas, profile)
+          : new GpuAsciiRenderer(canvas, profile);
     } catch (e) {
       canvas.remove();
       const fallback = document.createElement('canvas');
       fallback.className = 'scene-canvas';
       stage.append(fallback);
-      this.renderer = new CpuAsciiRenderer(fallback, profiles[project.profile]);
+      this.renderer = new CpuAsciiRenderer(fallback, profile);
       this.error = `GPU unavailable; using shared CPU renderer. ${String(e)}`;
     }
     this.renderer.exposure = project.settings.exposure;
@@ -116,6 +118,7 @@ export class Runtime extends EventTarget {
       timeline: this.timeline,
       project: this.project,
       asset: this.asset,
+      scope: this.scope,
     });
     if (this.disposed) {
       piece.dispose?.();
@@ -282,6 +285,16 @@ export class Runtime extends EventTarget {
   }
   get bookmarks() {
     return this.piece?.cameraBookmarks ?? ['authored'];
+  }
+  /** Composite live layers for diagnostics without recording a sequence. */
+  snapshot() {
+    const canvas = document.createElement('canvas');
+    canvas.width = this.renderer.canvas.width;
+    canvas.height = this.renderer.canvas.height;
+    const c = canvas.getContext('2d')!;
+    for (const layer of this.stage.querySelectorAll('canvas'))
+      c.drawImage(layer, 0, 0, canvas.width, canvas.height);
+    return canvas;
   }
   get diagnostics() {
     return {

@@ -2,6 +2,9 @@ import { clamp, I, mul } from './math';
 import { RendererBase, light, createAtlas, type AsciiRenderer, type MeshHandle } from './renderer';
 import type { VisualProfile } from './profiles';
 import type { Geometry } from '../modules/geometry';
+import { presentationCell, type Presentation } from './presentation';
+import type { DrawOptions } from './renderer';
+import { Matrix3, Matrix4 } from 'three';
 export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
   readonly backend = 'cpu' as const;
   private ctx: CanvasRenderingContext2D;
@@ -11,6 +14,7 @@ export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
   private z = new Float32Array();
   private rgb = new Float32Array();
   private cells = new Float32Array();
+  private time = 0;
   constructor(canvas: HTMLCanvasElement, profile: VisualProfile) {
     super(canvas, profile);
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -51,7 +55,8 @@ export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
     m.a = new Float32Array(g.a);
     m.count = g.a.length / 10;
   }
-  begin(_t: number) {
+  begin(t: number) {
+    this.time = t;
     this.z.fill(1e10);
     this.rgb.fill(0);
     this.triangles = 0;
@@ -81,7 +86,8 @@ export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
         }
       }
   }
-  draw(mesh: MeshHandle, m: ArrayLike<number> = I()) {
+  draw(mesh: MeshHandle, m: ArrayLike<number> = I(), options: DrawOptions = {}) {
+    const normal = new Matrix3().getNormalMatrix(new Matrix4().fromArray(Array.from(m))).elements;
     const a = mesh.a,
       pm = mul(this.vp, m),
       ps = new Float64Array(18);
@@ -100,10 +106,12 @@ export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
             (a[i + 9] > 1.5
               ? 1
               : light(
-                  m[0] * nx + m[4] * ny + m[8] * nz,
-                  m[1] * nx + m[5] * ny + m[9] * nz,
-                  m[2] * nx + m[6] * ny + m[10] * nz,
-                )) * this.exposure;
+                  normal[0] * nx + normal[3] * ny + normal[6] * nz,
+                  normal[1] * nx + normal[4] * ny + normal[7] * nz,
+                  normal[2] * nx + normal[5] * ny + normal[8] * nz,
+                )) *
+            this.exposure *
+            (options.gain ?? 1);
         ps[q] = (((pm[0] * x + pm[4] * y + pm[8] * z + pm[12]) / w) * 0.5 + 0.5) * this.W;
         ps[q + 1] = (0.5 - ((pm[1] * x + pm[5] * y + pm[9] * z + pm[13]) / w) * 0.5) * this.H;
         ps[q + 2] = (pm[2] * x + pm[6] * y + pm[10] * z + pm[14]) / w;
@@ -116,7 +124,7 @@ export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
     this.triangles += a.length / 30;
     this.draws++;
   }
-  finish(fade = 1) {
+  finish(fade = 1, options: Presentation = {}) {
     const ctx = this.ctx,
       [cols, rows] = this.grid,
       lum = (i: number) =>
@@ -149,8 +157,28 @@ export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
       ch = this.canvas.height / rows;
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
-        const i = (y * cols + x) * 3,
+        const effect = presentationCell(x, y, cols, rows, this.time, options);
+        const i = (y * cols + effect.sourceX) * 3,
           v = lum(i);
+        if (effect.lip) {
+          const white = Math.round(236 * fade);
+          ctx.fillStyle = `rgb(${white},${white},${white})`;
+          ctx.fillRect(x * cw, y * ch, cw + 0.6, ch + 0.6);
+          continue;
+        }
+        if (effect.solid && v >= 0.007) {
+          const strength =
+            clamp(v ** 0.4 * (options.mode === 'solid' ? 1.85 : 1.7)) *
+            247 *
+            (1 -
+              ((x / cols - 0.5) ** 2 + (y / rows - 0.5) ** 2) *
+                (options.mode === 'solid' ? 0.22 : 0.4)) *
+            fade;
+          const peak = Math.max(this.cells[i], this.cells[i + 1], this.cells[i + 2], 0.0001);
+          ctx.fillStyle = `rgb(${[0, 1, 2].map((c) => Math.round((this.cells[i + c] / peak) * strength)).join(',')})`;
+          ctx.fillRect(x * cw, y * ch, cw + 0.6, ch + 0.6);
+          continue;
+        }
         if (v < 0.012) continue;
         const gx =
             lum((y * cols + Math.min(cols - 1, x + 1)) * 3) -
@@ -169,6 +197,7 @@ export class CpuAsciiRenderer extends RendererBase implements AsciiRenderer {
                 : gx * gy > 0
                   ? 18
                   : 17;
+        if (effect.substitute) idx = 1 + (Math.abs(Math.floor(this.time * 13 + x * 3 + y)) % 14);
         const strength =
             clamp(0.2 + v ** this.profile.brightnessPower * 0.83 + edge * 0.07) *
             (1 - ((x / cols - 0.5) ** 2 + (y / rows - 0.5) ** 2) * 0.43) *

@@ -3,10 +3,12 @@ import { I } from './math';
 import { RendererBase, createAtlas, type AsciiRenderer, type MeshHandle } from './renderer';
 import type { Geometry } from '../modules/geometry';
 import type { VisualProfile } from './profiles';
+import { presentationModes, type Presentation } from './presentation';
+import type { DrawOptions } from './renderer';
 const vertex = `attribute vec3 ink;attribute float emission;varying vec3 radiance;
 float lighting(vec3 n){n=normalize(n);if(dot(n,vec3(.327,.209,.922))<0.)n=-n;return .16+.73*max(0.,dot(n,vec3(-.476,.661,.582)))+.17*max(0.,dot(n,vec3(.638,.279,-.718)))+.08*pow(1.-abs(dot(n,vec3(.312,.201,.928))),3.);}
-uniform bool fullColour;uniform vec3 accent;uniform float exposure;
-void main(){vec3 n=mat3(modelMatrix)*normal;float l=emission>1.5?1.:lighting(n);vec3 c=fullColour?ink:(ink.r>ink.g*1.3?accent:vec3(1.))*ink.r;radiance=c*l*exposure;gl_Position=projectionMatrix*modelMatrix*vec4(position,1.);}`;
+uniform bool fullColour;uniform vec3 accent;uniform float exposure;uniform float gain;
+void main(){vec3 n=normalMatrix*normal;float l=emission>1.5?1.:lighting(n);vec3 c=fullColour?ink:(ink.r>ink.g*1.3?accent:vec3(1.))*ink.r;radiance=c*l*exposure*gain;gl_Position=projectionMatrix*modelMatrix*vec4(position,1.);}`;
 const fragment = `varying vec3 radiance;void main(){gl_FragColor=vec4(radiance,1.);}`;
 const screenVertex = `varying vec2 uvScreen;void main(){uvScreen=uv;gl_Position=vec4(position.xy,0.,1.);}`;
 const descriptor = `varying vec2 uvScreen;uniform sampler2D field;uniform vec2 grid;uniform bool fullColour;uniform float densityPower;uniform float brightnessPower;uniform float edgeThreshold;uniform vec3 accent;
@@ -17,7 +19,14 @@ vec3 colour=sum/9.*.55+peak*.45;float v=asciiLuminance(colour);if(v<.012){gl_Fra
 vec2 d=1./grid;float gx=asciiLuminance(texture2D(field,at+vec2(d.x,0.)).rgb)-asciiLuminance(texture2D(field,at-vec2(d.x,0.)).rgb);float gy=asciiLuminance(texture2D(field,at+vec2(0.,d.y)).rgb)-asciiLuminance(texture2D(field,at-vec2(0.,d.y)).rgb);float edge=length(vec2(gx,gy));float idx=floor(clamp(pow(v,densityPower)*14.,1.,14.));
 if(v<.16&&edge>edgeThreshold){if(abs(gx)>abs(gy)*1.7)idx=15.;else if(abs(gy)>abs(gx)*1.7)idx=16.;else idx=gx*gy<0.?18.:17.;}
 float vig=1.-dot(uvScreen-.5,uvScreen-.5)*.43;float strength=clamp(.20+pow(v,brightnessPower)*.83+edge*.07,0.,1.)*vig;strength=floor(strength*31.+.5)/31.;vec3 tint=fullColour?colour/max(max(colour.r,colour.g),max(colour.b,.0001)):(peak.r>peak.g*1.3?accent:vec3(1.));gl_FragColor=vec4(tint*strength,idx/32.);}`;
-const present = `varying vec2 uvScreen;uniform sampler2D cells;uniform sampler2D atlas;uniform vec2 grid;uniform float fade;void main(){vec4 c=texture2D(cells,(floor(uvScreen*grid)+.5)/grid);float idx=floor(c.a*32.+.1);vec2 loc=fract(uvScreen*grid);float ink=texture2D(atlas,vec2((idx+loc.x)/32.,loc.y)).a;gl_FragColor=vec4(mix(vec3(2./255.),c.rgb*247./255.*fade,ink),1.);}`;
+const present = `varying vec2 uvScreen;uniform sampler2D cells;uniform sampler2D field;uniform sampler2D atlas;uniform vec2 grid;uniform float fade;uniform float time;uniform int mode;uniform float progress;uniform float amount;uniform bool fullColour;
+void main(){vec2 cell=floor(uvScreen*grid),top=vec2(cell.x,grid.y-1.-cell.y);vec2 n=top/grid;float x=top.x,y=top.y;vec2 sampleCell=cell;bool solid=mode==1,lip=false,substitute=false;
+if(mode==2)solid=clamp(n.x*.52+n.y*.48+sin(x*.27+y*.19)*.07,0.,1.)>=progress;
+if(mode==3){float seam=abs(n.y-(.26+.46*sin(n.x*5.2+time*1.05))+sin(n.x*17.+time*2.8)*.05);float f=.5+.5*sin(n.x*9.1+n.y*6.4+time*.6)*sin(n.y*12.8-n.x*4.1+time*.85);float cut=f*.32+seam*1.55+abs(n.x-.5)*abs(n.y-.42)*.35;solid=cut<progress*1.72;lip=abs(cut-progress*1.72)<.075&&progress>.07&&progress<.96;if(sin(y*.73+time*29.)+sin(x*.19+time*8.)>1.68)sampleCell.x=clamp(x-(mod(floor(time*21.+y),5.)-2.),0.,grid.x-1.);}
+if(mode==4){if(amount>.04&&sin(y*1.63+time*31.)+sin(time*9.1)>1.92-amount*1.35)sampleCell.x=clamp(x+floor(sin(y*.4+time*17.)*7.),0.,grid.x-1.);substitute=amount>.18&&sin(x*.91+y*.37+time*47.)>1.04-amount*.2;}
+vec4 c=texture2D(cells,(sampleCell+.5)/grid);float idx=floor(c.a*32.+.1);if(substitute)idx=1.+mod(abs(floor(time*13.+x*3.+y)),14.);vec2 loc=fract(uvScreen*grid);float ink=texture2D(atlas,vec2((idx+loc.x)/32.,loc.y)).a;vec3 colour=c.rgb*247./255.;
+if(solid){vec3 sum=vec3(0.),peak=vec3(0.);float maxv=0.;for(int yy=0;yy<3;yy++)for(int xx=0;xx<3;xx++){vec3 s=texture2D(field,(sampleCell+(vec2(float(xx),float(yy))+.5)/3.)/grid).rgb;sum+=s;float v=fullColour?dot(s,vec3(.25,.62,.13)):s.r;if(v>maxv){maxv=v;peak=s;}}vec3 s=sum/9.*.55+peak*.45;float v=fullColour?dot(s,vec3(.25,.62,.13)):s.r;float strength=clamp(pow(v,.40)*(mode==1?1.85:1.7),0.,1.)*247./255.*(1.-dot(n-.5,n-.5)*(mode==1?.22:.40));colour=s/max(max(s.r,s.g),max(s.b,.0001))*strength;ink=v>.007?1.:0.;}
+if(lip){colour=vec3(236./255.);ink=1.;}gl_FragColor=vec4(mix(vec3(2./255.),colour*fade,ink),1.);}`;
 export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
   readonly backend = 'gpu' as const;
   private gpu: THREE.WebGLRenderer;
@@ -32,6 +41,7 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
   private screen = new THREE.Mesh();
   private atlas: THREE.CanvasTexture;
   private lost = false;
+  private time = 0;
   private copies = new Map<MeshHandle, THREE.Mesh[]>();
   private uses = new Map<MeshHandle, number>();
   private onLost = (e: Event) => {
@@ -76,6 +86,7 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
         fullColour: { value: profile.colour },
         accent: { value: new THREE.Vector3(...profile.accent) },
         exposure: { value: 1 },
+        gain: { value: 1 },
       },
       toneMapped: false,
     });
@@ -102,9 +113,15 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
       depthWrite: false,
       uniforms: {
         cells: { value: this.cells.texture },
+        field: { value: this.field.texture },
         atlas: { value: this.atlas },
         grid: { value: new THREE.Vector2() },
         fade: { value: 1 },
+        time: { value: 0 },
+        mode: { value: 0 },
+        progress: { value: 0 },
+        amount: { value: 0 },
+        fullColour: { value: profile.colour },
       },
       toneMapped: false,
     });
@@ -126,6 +143,10 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
     const node = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
     node.matrixAutoUpdate = false;
     node.frustumCulled = false;
+    node.onBeforeRender = () => {
+      this.material.uniforms.gain.value = node.userData.gain ?? 1;
+      this.material.uniformsNeedUpdate = true;
+    };
     this.scene.add(node);
     const handle: MeshHandle = {
       a: new Float32Array(),
@@ -145,56 +166,39 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
     return handle;
   }
   update(m: MeshHandle, g: Geometry) {
-    m.a = new Float32Array(g.a);
     m.count = g.a.length / 10;
-    const node = m.native as THREE.Mesh,
-      geo = node.geometry as THREE.BufferGeometry;
-    const count = Math.max(1, m.count);
-    let attr = geo.getAttribute('position') as THREE.BufferAttribute;
-    if (!attr || attr.count < count) {
-      const size = 2 ** Math.ceil(Math.log2(count));
-      geo.dispose();
-      node.geometry = new THREE.BufferGeometry();
-      for (const [name, components] of [
-        ['position', 3],
-        ['normal', 3],
-        ['ink', 3],
-        ['emission', 1],
+    const node = m.native as THREE.Mesh;
+    let geometry = node.geometry as THREE.BufferGeometry;
+    let attribute = geometry.getAttribute('position') as
+      | THREE.InterleavedBufferAttribute
+      | undefined;
+    if (!attribute || attribute.count < Math.max(1, m.count)) {
+      const capacity = 2 ** Math.ceil(Math.log2(Math.max(1, m.count)));
+      const data = new THREE.InterleavedBuffer(new Float32Array(capacity * 10), 10).setUsage(
+        THREE.DynamicDrawUsage,
+      );
+      geometry.dispose();
+      geometry = new THREE.BufferGeometry();
+      node.geometry = geometry;
+      for (const [name, size, offset] of [
+        ['position', 3, 0],
+        ['normal', 3, 3],
+        ['ink', 3, 6],
+        ['emission', 1, 9],
       ] as const)
-        node.geometry.setAttribute(
-          name,
-          new THREE.BufferAttribute(new Float32Array(size * components), components).setUsage(
-            THREE.DynamicDrawUsage,
-          ),
-        );
+        geometry.setAttribute(name, new THREE.InterleavedBufferAttribute(data, size, offset));
+      attribute = geometry.getAttribute('position') as THREE.InterleavedBufferAttribute;
     }
-    const geometry = node.geometry as THREE.BufferGeometry;
-    for (let i = 0; i < m.count; i++) {
-      const j = i * 10;
-      (geometry.getAttribute('position') as THREE.BufferAttribute).setXYZ(
-        i,
-        g.a[j],
-        g.a[j + 1],
-        g.a[j + 2],
-      );
-      (geometry.getAttribute('normal') as THREE.BufferAttribute).setXYZ(
-        i,
-        g.a[j + 3],
-        g.a[j + 4],
-        g.a[j + 5],
-      );
-      (geometry.getAttribute('ink') as THREE.BufferAttribute).setXYZ(
-        i,
-        g.a[j + 6],
-        g.a[j + 7],
-        g.a[j + 8],
-      );
-      (geometry.getAttribute('emission') as THREE.BufferAttribute).setX(i, g.a[j + 9]);
-    }
-    for (const attribute of Object.values(geometry.attributes)) attribute.needsUpdate = true;
+    const data = attribute.data;
+    data.array.set(g.a);
+    data.clearUpdateRanges();
+    data.addUpdateRange(0, g.a.length);
+    data.needsUpdate = true;
+    m.a = (data.array as Float32Array).subarray(0, g.a.length);
     geometry.setDrawRange(0, m.count);
   }
-  begin(_t: number) {
+  begin(t: number) {
+    this.time = t;
     if (this.lost) throw Error('Graphics context was lost. Waiting for the browser to restore it.');
     this.triangles = 0;
     this.draws = 0;
@@ -202,7 +206,7 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
     for (const m of this.handles) (m.native as THREE.Mesh).visible = false;
     for (const copies of this.copies.values()) for (const copy of copies) copy.visible = false;
   }
-  draw(m: MeshHandle, transform: ArrayLike<number> = I()) {
+  draw(m: MeshHandle, transform: ArrayLike<number> = I(), options: DrawOptions = {}) {
     const base = m.native as THREE.Mesh,
       use = this.uses.get(m) ?? 0;
     this.uses.set(m, use + 1);
@@ -214,6 +218,10 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
         const copy = new THREE.Mesh(base.geometry, this.material);
         copy.matrixAutoUpdate = false;
         copy.frustumCulled = false;
+        copy.onBeforeRender = () => {
+          this.material.uniforms.gain.value = copy.userData.gain ?? 1;
+          this.material.uniformsNeedUpdate = true;
+        };
         copies.push(copy);
         this.scene.add(copy);
       }
@@ -221,11 +229,12 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
       node.geometry = base.geometry;
     }
     node.visible = m.count > 0;
+    node.userData.gain = options.gain ?? 1;
     node.matrix.fromArray(Array.from(transform));
     this.triangles += m.count / 3;
     this.draws++;
   }
-  finish(fade = 1) {
+  finish(fade = 1, options: Presentation = {}) {
     this.view.projectionMatrix.fromArray(Array.from(this.vp));
     this.material.uniforms.exposure.value = this.exposure;
     this.gpu.setRenderTarget(this.field);
@@ -234,6 +243,10 @@ export class GpuAsciiRenderer extends RendererBase implements AsciiRenderer {
     this.gpu.setRenderTarget(this.cells);
     this.gpu.render(this.screen, this.view);
     this.present.uniforms.fade.value = fade;
+    this.present.uniforms.time.value = this.time;
+    this.present.uniforms.mode.value = presentationModes.indexOf(options.mode ?? 'ascii');
+    this.present.uniforms.progress.value = Math.max(0, Math.min(1, options.progress ?? 0));
+    this.present.uniforms.amount.value = Math.max(0, Math.min(1, options.amount ?? 0));
     this.screen.material = this.present;
     this.gpu.setRenderTarget(null);
     this.gpu.render(this.screen, this.view);

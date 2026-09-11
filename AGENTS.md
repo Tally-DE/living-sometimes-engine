@@ -1,6 +1,6 @@
 # Agent instructions
 
-Read `README.md` and `engine/README.md` before changing the engine or authoring a story.
+Read `README.md`, `engine/README.md` and `engine/API.md` before changing the engine or authoring a story. The current release is 1.1.0; existing 1.0.0 project manifests remain supported.
 
 - This is an open-source engine for agents and people. Use source files, the typed API and npm commands as the authoring interface. The studio is available for live inspection.
 - Every delivered frame must be live rendered code. Do not create video files, recordings, video textures or recorded playback fallbacks. Audio and static source artwork are allowed.
